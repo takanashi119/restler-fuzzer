@@ -7,9 +7,20 @@
 
         {
             "name": "Python: Current File",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
-            "program": "${file}"
+            "program": "${file}",
+            "justMyCode": false,
+            "args": ["--restler_grammar",
+            "/home/takanashi/Desktop/vampitest/Compile/grammar.py",
+            "--settings",
+            "/home/takanashi/Desktop/vampitest/Compile/engine_settings.json",
+            "--custom_mutations",
+            "/home/takanashi/Desktop/vampitest/Compile/dict.json",
+            "--save_results_in_fixed_dirname",
+            "/home/takanashi/Desktop",
+            "--no_ssl",
+        ],
         },
         {
             "name": "Python: test quick start",

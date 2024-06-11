@@ -142,7 +142,7 @@ class InvalidValueChecker(CheckerBase):
         self._custom_invalid_mutations = None
 
         # The invalid dictionary mutations pool
-        self._invalid_static_candidate_values_pool: CandidateValuesPool = None
+        self._invalid_statidictionaryc_candidate_values_pool: CandidateValuesPool = None
 
         # The pool with dynamic generators
         self._invalid_generated_candidate_values_pool: CandidateValuesPool = None

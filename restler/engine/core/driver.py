@@ -32,6 +32,7 @@ from engine.core.requests import FailureInformation
 from engine.core.request_utilities import execute_token_refresh_cmd
 from engine.core.request_utilities import get_hostname_from_line
 from engine.core.fuzzing_monitor import Monitor
+from engine.core.mutation import dict_mutator
 from engine.errors import TimeOutException
 from engine.errors import ExhaustSeqCollectionException
 from engine.errors import InvalidDictionaryException
@@ -162,8 +163,18 @@ def apply_checkers(checkers, renderings, global_lock):
             SequenceTracker.clear_origin()
             SequenceTracker.clear_sequence_trace()
 
+# def dict_fuzzing(renderings,global_lock):
+#     # new function
+#     # to fuzz candidate_value
+#     candidate_values_pool = GrammarRequestCollection().candidate_values_pool
+#     old_lenth = len(GrammarRequestCollection().candidate_values_pool.candidate_values['restler_fuzzable_string'].values)
+#     new_add_values = GrammarRequestCollection().candidate_values_pool.candidate_values['restler_fuzzable_string'].values
+#     new_add_values.append('hi')
+#     # GrammarRequestCollection().candidate_values_pool.candidate_values['restler_fuzzable_string'].values.append("hi")
+#     # print(GrammarRequestCollection().candidate_values_pool.candidate_values['restler_fuzzable_string'].values)
+#     return new_add_values[old_lenth:]
 
-def render_one(seq_to_render, ith, checkers, generation, global_lock, garbage_collector):
+def render_one(seq_to_render, ith, checkers, mutator,generation, global_lock, garbage_collector):
     """ Render the specified sequence.
 
     @param seq_to_render: The sequence to render.
@@ -224,6 +235,16 @@ def render_one(seq_to_render, ith, checkers, generation, global_lock, garbage_co
                 or renderings.valid or n_invalid_renderings < 1:
             apply_checkers(checkers, renderings, global_lock)
 
+        # Apply my dict-fuzzer
+        if  renderings.valid and len(GrammarRequestCollection().candidate_values_pool.candidate_values['restler_fuzzable_string'].values)<20:
+            if renderings.sequence :
+                mutated_pool=mutator.mutated_dict()
+                renderings = current_seq.render(mutated_pool, global_lock)
+                if renderings.valid:
+                    print("add new value to dict")
+                    GrammarRequestCollection().candidate_values_pool=mutated_pool
+                    candidate_values_pool=GrammarRequestCollection().candidate_values_pool
+            break
         # If garbage collection must be done after every sequence, apply the garbage collector here.
         # Note: this must be done after applying checkers, since they may re-use the state of the sequence.
         if Settings().run_gc_after_every_sequence:
@@ -321,14 +342,14 @@ def render_parallel(seq_collection, fuzzing_pool, checkers, generation, global_l
 
     return seq_collection
 
-def render_sequential(seq_collection, fuzzing_pool, checkers, generation, global_lock, garbage_collector):
+def render_sequential(seq_collection, fuzzing_pool, checkers,mutator, generation, global_lock, garbage_collector):
     """ Does rendering work sequential by invoking "render_one" multiple
     times. For brevity we skip arguments and return types, since they are
     similar with "render_one".
     """
     prev_len = len(seq_collection)
     for ith in range(prev_len):
-        valid_renderings = render_one(seq_collection[ith], ith, checkers, generation, global_lock, garbage_collector)
+        valid_renderings = render_one(seq_collection[ith], ith, checkers, mutator,generation, global_lock, garbage_collector)
 
         # Extend collection by adding all valid renderings
         seq_collection.extend(valid_renderings)
@@ -640,7 +661,7 @@ def find_request_id(definition_block_data, fuzzing_requests, candidate_values_po
     # If no request ID could be determined, use the rendered request text.
     return requests.Request(definition=[request_text], requestId=path_only)
 
-def generate_sequences(fuzzing_requests, checkers, fuzzing_jobs=1, garbage_collector=None):
+def generate_sequences(fuzzing_requests, checkers,mutator,fuzzing_jobs=1, garbage_collector=None):
     """ Implements core restler algorithm.
 
     @param fuzzing_requests: The collection of requests that will be fuzzed
@@ -832,7 +853,7 @@ def generate_sequences(fuzzing_requests, checkers, fuzzing_jobs=1, garbage_colle
                                                     generation, global_lock, seq_rendering_cache,
                                                     garbage_collector)
                 else:
-                    seq_collection = render(seq_collection, fuzzing_pool, checkers, generation, global_lock,
+                    seq_collection = render(seq_collection, fuzzing_pool, checkers,mutator, generation, global_lock,
                                             garbage_collector)
 
             except TimeOutException:

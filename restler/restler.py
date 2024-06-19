@@ -38,6 +38,7 @@ from engine.primitives import InvalidDictPrimitiveException
 from engine.primitives import UnsupportedPrimitiveException
 from restler_settings import Settings
 from restler_settings import TokenAuthMethod
+from engine.core.mutation import dict_mutator
 
 MANAGER_HANDLE = None
 
@@ -534,6 +535,8 @@ if __name__ == '__main__':
     checkers = get_checker_list(req_collection, fuzzing_requests, args.enable_checkers or [], args.disable_checkers or [],\
         set_enable_first, settings.custom_checkers)
 
+    mutator = dict_mutator()
+
     # Initialize request count for each checker
     for checker in checkers:
         if checker.enabled:
@@ -585,7 +588,7 @@ if __name__ == '__main__':
         gc_thread.start()
 
     # Start fuzzing
-    fuzz_thread = fuzzer.FuzzingThread(fuzzing_requests, checkers, args.fuzzing_jobs, garbage_collector)
+    fuzz_thread = fuzzer.FuzzingThread(fuzzing_requests, checkers,mutator,args.fuzzing_jobs, garbage_collector)
     fuzz_thread.name = 'Fuzzer'
     fuzz_thread.daemon = True
     fuzz_thread.start()

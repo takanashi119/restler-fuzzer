@@ -662,7 +662,7 @@ class Sequence(object):
 
             Monitor().update_status_codes_monitor(self, self.status_codes, lock)
 
-            # Register current rendering's status.
+            # Register current renderifng's status.
             if lock is not None:
                 lock.acquire()
             Monitor().update_renderings_monitor(request, rendering_is_valid)
@@ -695,7 +695,7 @@ class Sequence(object):
                 information = None
                 if response.has_valid_code():
                     if parser_exception_occurred:
-                        information = FailureInformation.PARSER
+                        information = FailureInformacombinationstion.PARSER
                     elif resource_error:
                         information = FailureInformation.RESOURCE_CREATION
                 elif response.has_bug_code():

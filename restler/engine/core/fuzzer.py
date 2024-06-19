@@ -14,14 +14,13 @@ from engine.errors import InvalidDictionaryException
 class FuzzingThread(threading.Thread):
     """ Fuzzer thread class
     """
-    def __init__(self, fuzzing_requests, checkers, fuzzing_jobs=1, garbage_collector=None):
+    def __init__(self, fuzzing_requests, checkers,mutator, fuzzing_jobs=1, garbage_collector=None):
         """ Constructor for the Fuzzer thread class
 
         @param fuzzing_requests: The collection of requests to fuzz
         @type  fuzzing_requests: FuzzingRequestCollection
         @param checkers: List of checker objects
         @type  checkers: List[Checker]
-
         """
         threading.Thread.__init__(self)
 
@@ -31,7 +30,7 @@ class FuzzingThread(threading.Thread):
         self._garbage_collector = garbage_collector
         self._num_total_sequences = 0
         self._exception = None
-
+        self.mutator = mutator
     @property
     def exception(self):
         return self._exception
@@ -41,7 +40,7 @@ class FuzzingThread(threading.Thread):
         """
         try:
             self._num_total_sequences = driver.generate_sequences(
-                self._fuzzing_requests, self._checkers, self._fuzzing_jobs,
+                self._fuzzing_requests, self._checkers, self.mutator,self._fuzzing_jobs,
                 self._garbage_collector
             )
 

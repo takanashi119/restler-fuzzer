@@ -236,12 +236,11 @@ def render_one(seq_to_render, ith, checkers, mutator,generation, global_lock, ga
             apply_checkers(checkers, renderings, global_lock)
 
         # Apply my dict-fuzzer
-        if  renderings.valid and len(GrammarRequestCollection().candidate_values_pool.candidate_values['restler_fuzzable_string'].values)<20:
+        if  renderings.valid and len(GrammarRequestCollection().candidate_values_pool.candidate_values['restler_fuzzable_string'].values)<50:
             if renderings.sequence :
                 mutated_pool=mutator.mutated_dict()
                 renderings = current_seq.render(mutated_pool, global_lock)
                 if renderings.valid:
-                    print("add new value to dict")
                     GrammarRequestCollection().candidate_values_pool=mutated_pool
                     candidate_values_pool=GrammarRequestCollection().candidate_values_pool
             break

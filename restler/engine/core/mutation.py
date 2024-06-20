@@ -1,6 +1,9 @@
 import random
+import string
 from engine.core.requests import GrammarRequestCollection
 class dict_mutator:
+    def __init__(self) -> None:
+        self.seed_pool={}
     def mutate_value(self,value):
         try:
             if isinstance(value, int):
@@ -8,13 +11,28 @@ class dict_mutator:
             elif isinstance(value, float):
                 return value * random.uniform(0.9, 1.1)
             elif isinstance(value, str):
-                return value + random.choice('abcdefghijklmnopqrstuvwxyz')
+                if len(value):
+                    mutate_mtd=0
+                    
+                else:
+                    mutate_mtd=random.randint(0,3)
+                if mutate_mtd==0:
+                    random_char = random.choice(string.ascii_letters + string.digits)
+                    random_position = random.randint(0, len(value))
+                    modified_str = value[:random_position] + random_char + value[random_position:]
+                if mutate_mtd==1:
+                    random_position = random.randint(0, len(value))
+                    modified_str = value[:random_position] + value[random_position+1:]
+                if mutate_mtd==2:
+                    random_char = random.choice(string.ascii_letters + string.digits)
+                    random_position = random.randint(0, len(value))
+                    modified_str = value[:random_position] + random_char + value[random_position+1:]
+                    
+                return modified_str        
         except:
             pass
 
-    def mutated_dict(self,num_mutations=5):
-        
-        # candidate_pool=GrammarRequestCollection().candidate_values_pool.candidate_values['restler_fuzzable_string'].values
+    def mutated_dict(self,num_mutations=1):
         candidate_pool=GrammarRequestCollection().candidate_values_pool
         candidate_values=candidate_pool.candidate_values['restler_fuzzable_string'].values
         for _ in range(num_mutations):

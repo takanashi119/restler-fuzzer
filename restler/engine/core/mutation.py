@@ -1,14 +1,20 @@
 import random
 import string
-
+import threading
 import engine.core.sequences as sequences
 import engine.core.requests as requests
 import engine.primitives as primitives
+import engine.dependencies as dependencies
 import engine.transport_layer.messaging as messaging
+import engine.core.async_request_utilities as async_request_utilities
+import engine.core.request_utilities as request_utilities
+from engine.core.fuzzing_monitor import Monitor
+from utils.logging.trace_db import SequenceTracker
 from engine.core.requests import GrammarRequestCollection
 from engine.transport_layer.response import *
 from engine.bug_bucketing import BugBuckets
 from utils.logger import raw_network_logging as RAW_LOGGING
+threadLocal = threading.local()
 class dict_mutator:
     def __init__(self) -> None:
         self.seed_pool={}
@@ -39,35 +45,48 @@ class dict_mutator:
                 return modified_str        
         except:
             pass
-        
+    def get_mutated_blocks(self,fuzzable_blocks):
+        #No need to mutate the same value 
+        mutated_blocks={}
+        for idx,block in fuzzable_blocks.items():
+            mutated_block = self.mutate_value(fuzzable_blocks[1])
+            mutated_blocks[idx]=mutated_block
+        return mutated_blocks
     def apply_mutation_dict(self,seq:sequences.Sequence,num_mutations=1):
         #Ensure the last request has fuzzable value 
-        self.seq = seq
-        self.last_req = seq.last_request
+        last_req = seq.last_request
+        definition=last_req.definition
         self.candidate_pool = GrammarRequestCollection().candidate_values_pool
-        fuzzable_block=self.get_fuzzable()
-        if (len(fuzzable_block)==0):
+        fuzzable_blocks=self.get_fuzzable(last_req)
+        if (len(fuzzable_blocks)==0):
             return 0
 
+        #execute current seq until the last one
+        #and referered the cheker
+        start_reqs=self.execute_start_of_sequence(seq)
         
-        self.execute_start_of_sequence(seq)
-        candidate_pool=GrammarRequestCollection().candidate_values_pool
-        candidate_values=candidate_pool.candidate_values['restler_fuzzable_string'].values
-        for _ in range(num_mutations):
-            value_to_mutate = random.choice(candidate_values)
-        #TODO add weight to every seed in dict instead of random
-            new_value = self.mutate_value(value_to_mutate)
-            candidate_pool.candidate_values['restler_fuzzable_string'].values.append(new_value)
-        return candidate_pool
-    def get_fuzzable(self):
-        fuzzable_block=[]
-        for request_block in self.last_req.definition:
+        mutated_blocks=self.get_mutated_blocks(fuzzable_blocks)
+        new_req=last_req
+        for idx,block in mutated_blocks:
+            new_req.definition[idx]=block
+            new_seq=start_reqs+sequences.Sequence(new_req)
+            response , _ =self.render_and_send_data(new_seq,new_req) 
+            if response.has_valid_code():
+                GrammarRequestCollection().candidate_values_pool.\
+                    candidate_values[primitives.FUZZABLE_STRING].append(block)
+        return 
+    def get_fuzzable(self,last_req):
+        #return idx and fuzzable blocks
+        fuzzable_blocks={}
+        idx=-1
+        for request_block in last_req.definition:
+            idx=idx+1
             primitive_type = request_block[0]
             if primitive_type in [primitives.FUZZABLE_STRING,
                                   primitives.FUZZABLE_INT]:
             #TODO:add more fuzzable type
-                fuzzable_block.append(request_block)
-        return fuzzable_block
+                fuzzable_blocks[idx]=request_block
+        return fuzzable_blocks
     def execute_start_of_sequence(self,seq:sequences.Sequence):
         if len(seq.requests) > 1:
             RAW_LOGGING("Re-rendering and sending start of sequence")
@@ -77,16 +96,45 @@ class dict_mutator:
             response, _ = self.render_and_send_data(new_seq, request)
             # Check to make sure a bug wasn't uncovered while executing the sequence
             if response and response.has_bug_code():
-                self._print_suspect_sequence(new_seq, response)
+                # if response and response.status_code:
+                #     status_code = self._format_status_code(response.status_code)
+                #     self._checker_log.checker_print(f"\nSuspect sequence: {status_code}")
+                # for req in seq:
+                #     self._checker_log.checker_print(f"{req.method} {req.endpoint}")
                 BugBuckets.Instance().update_bug_buckets(new_seq, response.status_code, origin=self.__class__.__name__)
-        return 0
+        return new_seq
     def render_and_send_data(self, seq, request:requests.Request):
+        response=[]
+        response_to_parse=[]
         rendered_data, parser, tracked_parameters, updated_writer_variables, replay_blocks =\
              request.render_current(self.candidate_pool)
         rendered_data = seq.resolve_dependencies(rendered_data)
-    def render(self):
-        return 
-   
+    
+        SequenceTracker.initialize_sequence_trace(combination_id=seq.combination_id,
+                                            tags={'hex_definition': seq.hex_definition})
+        SequenceTracker.initialize_request_trace(combination_id=seq.combination_id,
+                                                 request_id=request.hex_definition,
+                                                 replay_blocks=replay_blocks)
+        response = self.send_request(parser, rendered_data)
+    
+        return response,response_to_parse
+    def send_request(self, parser, rendered_data):
+        from engine.transport_layer.messaging import HttpSock
+        try:
+            checkers_sock = threadLocal.checkers_sock
+        except AttributeError:
+            # Socket not yet initialized.
+            threadLocal.checkers_sock = HttpSock(Settings().connection_settings)
+            checkers_sock = threadLocal.checkers_sock
+
+        response = request_utilities.send_request_data(
+            rendered_data, req_timeout_sec=Settings().max_request_execution_time,
+            reconnect=Settings().reconnect_on_every_request,
+            http_sock=checkers_sock
+        )
+
+        Monitor().increment_requests_count(self.__class__.__name__)
+        return response
 # mutator=dict_mutator()
 # input_dict = ['Hi','!','my','best','friend']
 # mutated_dict=mutator.mutated_dict(input_dict, num_mutations=10)

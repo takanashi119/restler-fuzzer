@@ -65,7 +65,7 @@ class InvalidDynamicObjectChecker(CheckerBase):
         new_seq = self._execute_start_of_sequence()
         # Add the last request of the sequence to the new sequence
         new_seq = new_seq + sequences.Sequence(last_request)
-
+        
         # Get and send each invalid request
         self._checker_log.checker_print("\nSending invalid request(s):")
         for data in self._prepare_invalid_requests(last_rendering):

@@ -237,15 +237,8 @@ def render_one(seq_to_render, ith, checkers, mutator:dict_mutator,generation, gl
 
         # Apply my dict-fuzzer
         mutator.apply_mutation_dict(current_seq)
-        print(current_seq.last_request.definition)
-        # if  renderings.valid and len(GrammarRequestCollection().candidate_values_pool.candidate_values['restler_fuzzable_string'].values)<50:
-        #     if renderings.sequence :
-        #         mutated_pool=mutator.init_dict(current_seq)
-        #         renderings = current_seq.render(mutated_pool, global_lock)
-        #         if renderings.valid:
-        #             GrammarRequestCollection().candidate_values_pool=mutated_pool
-        #             candidate_values_pool=GrammarRequestCollection().candidate_values_pool
-        #     break
+        candidate_values_pool = GrammarRequestCollection().candidate_values_pool
+      
         # If garbage collection must be done after every sequence, apply the garbage collector here.
         # Note: this must be done after applying checkers, since they may re-use the state of the sequence.
         if Settings().run_gc_after_every_sequence:

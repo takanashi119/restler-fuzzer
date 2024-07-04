@@ -1,6 +1,7 @@
 import random
 import string
 import threading
+import copy
 import engine.core.sequences as sequences
 import engine.core.requests as requests
 import engine.primitives as primitives
@@ -14,6 +15,7 @@ from engine.core.requests import GrammarRequestCollection
 from engine.transport_layer.response import *
 from engine.bug_bucketing import BugBuckets
 from utils.logger import raw_network_logging as RAW_LOGGING
+
 threadLocal = threading.local()
 class dict_mutator:
     def __init__(self) -> None:
@@ -49,11 +51,17 @@ class dict_mutator:
         #No need to mutate the same value 
         mutated_blocks={}
         for idx,block in fuzzable_blocks.items():
-            mutated_block = self.mutate_value(fuzzable_blocks[1])
-            mutated_blocks[idx]=mutated_block
+            mutated_value = self.mutate_value(block[1])
+            mutated_blocks[idx]=block[:1]+(mutated_value,)+block[2:]
         return mutated_blocks
-    def apply_mutation_dict(self,seq:sequences.Sequence,num_mutations=1):
+    
+
+
+    def apply_mutation_dict(self,seq:sequences.Sequence,max_dict=300):
         #Ensure the last request has fuzzable value 
+        if (len( GrammarRequestCollection().candidate_values_pool.\
+                candidate_values['restler_fuzzable_string'].values)>=max_dict):
+            return 0
         last_req = seq.last_request
         definition=last_req.definition
         self.candidate_pool = GrammarRequestCollection().candidate_values_pool
@@ -66,15 +74,21 @@ class dict_mutator:
         start_reqs=self.execute_start_of_sequence(seq)
         
         mutated_blocks=self.get_mutated_blocks(fuzzable_blocks)
-        new_req=last_req
-        for idx,block in mutated_blocks:
-            new_req.definition[idx]=block
-            new_seq=start_reqs+sequences.Sequence(new_req)
-            response , _ =self.render_and_send_data(new_seq,new_req) 
+        new_last_req=copy.deepcopy(last_req)
+        for idx,block in mutated_blocks.items():
+            new_last_req.definition[idx]=block
+            new_seq=start_reqs+sequences.Sequence(new_last_req)
+            response =self.render_and_send_by_definition(new_seq,new_last_req) 
             if response.has_valid_code():
                 GrammarRequestCollection().candidate_values_pool.\
-                    candidate_values[primitives.FUZZABLE_STRING].append(block)
+                    candidate_values['restler_fuzzable_string'].values.append(block[1])
+                candidate_pool = GrammarRequestCollection().candidate_values_pool
+            elif response.has_bug_code():
+                print('find bug when redering a mutated request')
         return 
+    
+
+
     def get_fuzzable(self,last_req):
         #return idx and fuzzable blocks
         fuzzable_blocks={}
@@ -83,31 +97,61 @@ class dict_mutator:
             idx=idx+1
             primitive_type = request_block[0]
             if primitive_type in [primitives.FUZZABLE_STRING,
-                                  primitives.FUZZABLE_INT]:
+                                  primitives.FUZZABLE_INT,
+                                  primitives.CUSTOM_PAYLOAD]:
             #TODO:add more fuzzable type
                 fuzzable_blocks[idx]=request_block
         return fuzzable_blocks
     def execute_start_of_sequence(self,seq:sequences.Sequence):
-        if len(seq.requests) > 1:
-            RAW_LOGGING("Re-rendering and sending start of sequence")
         new_seq = sequences.Sequence([])
         for request in seq.requests[:-1]:
             new_seq = new_seq + sequences.Sequence(request)
             response, _ = self.render_and_send_data(new_seq, request)
             # Check to make sure a bug wasn't uncovered while executing the sequence
             if response and response.has_bug_code():
+
+                print("find bug while re-rendering")
                 # if response and response.status_code:
                 #     status_code = self._format_status_code(response.status_code)
                 #     self._checker_log.checker_print(f"\nSuspect sequence: {status_code}")
                 # for req in seq:
                 #     self._checker_log.checker_print(f"{req.method} {req.endpoint}")
-                BugBuckets.Instance().update_bug_buckets(new_seq, response.status_code, origin=self.__class__.__name__)
         return new_seq
+    def render_and_send_by_definition(self,seq,last_req):
+        response=[]
+        response_to_parse=[]
+        definition=last_req.definition
+        rendered_values = []
+        for block in definition:
+            primitive_type = block[0]
+            if primitive_type == primitives.REFRESHABLE_AUTHENTICATION_TOKEN:
+                value = primitives.restler_refreshable_authentication_token
+            elif primitive_type in [primitives.FUZZABLE_STRING,
+                                    primitives.CUSTOM_PAYLOAD]:
+                value = f'"{block[1]}"'
+            else :
+                value = block[1]
+            rendered_values.append(value)
+        
+        rendered_values = request_utilities.resolve_dynamic_primitives(rendered_values, self.candidate_pool)
+
+        rendered_data="".join(rendered_values)
+
+        parser = None
+        rendered_data = seq.resolve_dependencies(rendered_data)
+        if bool(last_req.metadata) and 'post_send' in last_req.metadata\
+            and 'parser' in last_req.metadata['post_send']:
+                parser = last_req.metadata['post_send']['parser']
+        
+        response = self.send_request(parser,rendered_data)
+        return response
+
+
     def render_and_send_data(self, seq, request:requests.Request):
         response=[]
         response_to_parse=[]
         rendered_data, parser, tracked_parameters, updated_writer_variables, replay_blocks =\
-             request.render_current(self.candidate_pool)
+             request.render_current(self.candidate_pool)                                         
         rendered_data = seq.resolve_dependencies(rendered_data)
     
         SequenceTracker.initialize_sequence_trace(combination_id=seq.combination_id,

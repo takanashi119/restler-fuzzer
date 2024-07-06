@@ -396,7 +396,8 @@ class Sequence(object):
         response_datetime_str = datetime_now.strftime(REQUEST_DATETIME_FORMAT)
         timestamp_micro = int(datetime_now.timestamp()*10**6)
 
-        # Response may not exist if there was an error sending the request or a timeout
+        # Response may not exist if 
+        # was an error sending the request or a timeout
         if parser and responses_to_parse:
             parser_threw_exception = not request_utilities.call_response_parser(parser, None, request=request,
                                                                                 responses=responses_to_parse)

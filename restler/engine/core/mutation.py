@@ -9,17 +9,21 @@ import engine.dependencies as dependencies
 import engine.transport_layer.messaging as messaging
 import engine.core.async_request_utilities as async_request_utilities
 import engine.core.request_utilities as request_utilities
+import engine.core.GA as GA
 from engine.core.fuzzing_monitor import Monitor
 from utils.logging.trace_db import SequenceTracker
 from engine.core.requests import GrammarRequestCollection
 from engine.transport_layer.response import *
 from engine.bug_bucketing import BugBuckets
 from utils.logger import raw_network_logging as RAW_LOGGING
-
+import numpy as np
 threadLocal = threading.local()
+DEFAULT_FITNESS=1
 class dict_mutator:
     def __init__(self) -> None:
-        self.seed_pool={}
+        self.seed_pool=[]
+        self.max_candidate = 20
+
     def mutate_value(self,value):
         try:
             if isinstance(value, int):
@@ -27,9 +31,9 @@ class dict_mutator:
             elif isinstance(value, float):
                 return value * random.uniform(0.9, 1.1)
             elif isinstance(value, str):
+                target_ASCII=np.fromstring(value,dtype=np.uint8)
                 if len(value):
                     mutate_mtd=0
-                    
                 else:
                     mutate_mtd=random.randint(0,3)
                 if mutate_mtd==0:
@@ -47,30 +51,69 @@ class dict_mutator:
                 return modified_str        
         except:
             pass
+
     def get_mutated_blocks(self,fuzzable_blocks):
         #No need to mutate the same value 
         mutated_blocks={}
         for idx,block in fuzzable_blocks.items():
-            mutated_value = self.mutate_value(block[1])
+            mutated_value = GA.mutation(block[1])
+            # mutated_value = self.mutate_value(block[1])
             mutated_blocks[idx]=block[:1]+(mutated_value,)+block[2:]
         return mutated_blocks
     
+    def power_schedule(self,seq:sequences.Sequence,n_valid,n_invalid):
+        #formula: NewPower = Power*alpha + beta
+
+        last_req=seq.last_request
+        try:
+            if self.get_fuzzable(last_req) and self.should_select_seed():
+                fitness = n_valid/(n_invalid+n_valid+1)
+                for idx in self.current_seeds_idxs:
+                    self.seed_pool[idx][1] = self.seed_pool[idx][1] + fitness
+        except:
+            raise ValueError
+    def seed_select(self,n_seeds):
+        value_index_table = list(range(len(self.seed_pool)))
+        fitness_table = [seed[1] for seed in self.seed_pool]
+        if self.should_select_seed():
+            selected_index=set()
+            while len(selected_index)<n_seeds:
+                index=random.choices(value_index_table, weights=fitness_table,k=1)[0]
+                selected_index.add(index)
+            return list(selected_index)
+        else:
+            return value_index_table
+    def should_select_seed(self):
+        if len(self.seed_pool)>self.max_candidate:
+            return True
+        else:
+            return False
+        
+                
+                
 
 
-    def apply_mutation_dict(self,seq:sequences.Sequence,max_dict=300):
-        #Ensure the last request has fuzzable value 
-        if (len( GrammarRequestCollection().candidate_values_pool.\
-                candidate_values['restler_fuzzable_string'].values)>=max_dict):
+    def apply_mutation_dict(self,seq:sequences.Sequence,renderings,max_dict=100,max_candidate=20):
+        
+        if (len(self.seed_pool)>=max_dict):
             return 0
+        #initialize the seed_pool
+        if not self.seed_pool:
+            fuzzable_string_values = copy.deepcopy(GrammarRequestCollection().candidate_values_pool.\
+                candidate_values['restler_fuzzable_string'].values)
+            for value in fuzzable_string_values:
+                self.seed_pool.append([value,DEFAULT_FITNESS])
+            
         last_req = seq.last_request
         definition=last_req.definition
         self.candidate_pool = GrammarRequestCollection().candidate_values_pool
         fuzzable_blocks=self.get_fuzzable(last_req)
+        #Ensure the last request has fuzzable value 
         if (len(fuzzable_blocks)==0):
             return 0
 
         #execute current seq until the last one
-        #and referered the cheker
+        #which referered the CHECKER(base)
         start_reqs=self.execute_start_of_sequence(seq)
         
         mutated_blocks=self.get_mutated_blocks(fuzzable_blocks)
@@ -78,11 +121,22 @@ class dict_mutator:
         for idx,block in mutated_blocks.items():
             new_last_req.definition[idx]=block
             new_seq=start_reqs+sequences.Sequence(new_last_req)
-            response =self.render_and_send_by_definition(new_seq,new_last_req) 
+            response =self.render_and_send_by_definition(new_seq,new_last_req)
+            #TODO:select seeds by power
             if response.has_valid_code():
-                GrammarRequestCollection().candidate_values_pool.\
-                    candidate_values['restler_fuzzable_string'].values.append(block[1])
-                candidate_pool = GrammarRequestCollection().candidate_values_pool
+                self.seed_pool.append([block[1],DEFAULT_FITNESS])
+                selected_seeds_idxs = self.seed_select(max_candidate)
+                self.current_seeds_idxs = selected_seeds_idxs
+                if self.should_select_seed():
+                    selected_seeds=[]
+                    for idx in selected_seeds_idxs:
+                        selected_seeds.append(self.seed_pool[idx][0])
+                    
+                    GrammarRequestCollection().candidate_values_pool.\
+                        candidate_values['restler_fuzzable_string'].values = selected_seeds
+                else:
+                    GrammarRequestCollection().candidate_values_pool.\
+                        candidate_values['restler_fuzzable_string'].values.append(block[1])
             elif response.has_bug_code():
                 print('find bug when redering a mutated request')
         return 
@@ -154,11 +208,11 @@ class dict_mutator:
              request.render_current(self.candidate_pool)                                         
         rendered_data = seq.resolve_dependencies(rendered_data)
     
-        SequenceTracker.initialize_sequence_trace(combination_id=seq.combination_id,
-                                            tags={'hex_definition': seq.hex_definition})
-        SequenceTracker.initialize_request_trace(combination_id=seq.combination_id,
-                                                 request_id=request.hex_definition,
-                                                 replay_blocks=replay_blocks)
+        # SequenceTracker.initialize_sequence_trace(combination_id=seq.combination_id,
+        #                                     tags={'hex_definition': seq.hex_definition})
+        # SequenceTracker.initialize_request_trace(combination_id=seq.combination_id,
+        #                                          request_id=request.hex_definition,
+        #                                          replay_blocks=replay_blocks)
         response = self.send_request(parser, rendered_data)
     
         return response,response_to_parse

@@ -216,7 +216,7 @@ def render_one(seq_to_render, ith, checkers, mutator:dict_mutator,generation, gl
     current_seq.seq_i = ith
     valid_renderings = []
     prev_renderings = None
-
+    
     # Try to find one valid rendering.
     n_invalid_renderings = 0
     iteration = 0
@@ -234,10 +234,6 @@ def render_one(seq_to_render, ith, checkers, mutator:dict_mutator,generation, gl
         if Settings().fuzzing_mode not in ['bfs-cheap', 'bfs-minimal']\
                 or renderings.valid or n_invalid_renderings < 1:
             apply_checkers(checkers, renderings, global_lock)
-
-        # Apply my dict-fuzzer
-        mutator.apply_mutation_dict(current_seq)
-        candidate_values_pool = GrammarRequestCollection().candidate_values_pool
       
         # If garbage collection must be done after every sequence, apply the garbage collector here.
         # Note: this must be done after applying checkers, since they may re-use the state of the sequence.
@@ -256,7 +252,13 @@ def render_one(seq_to_render, ith, checkers, mutator:dict_mutator,generation, gl
             logger.print_request_coverage(rendered_sequence=renderings, log_rendered_hash=True)
 
         # Exit after a valid rendering was found
+        # Apply my dict-fuzzer
         if renderings.valid:
+            try:
+                mutator.apply_mutation_dict(current_seq,renderings)
+                candidate_values_pool = GrammarRequestCollection().candidate_values_pool
+            except:
+                raise TimeoutError
             break
 
         # This line will only be reached only if we have an invalid rendering.
@@ -288,6 +290,9 @@ def render_one(seq_to_render, ith, checkers, mutator:dict_mutator,generation, gl
         while renderings.sequence is not None:
             if renderings.valid:
                 valid_renderings.append(renderings.sequence)
+        #add invalid_counter
+            else:
+                n_invalid_renderings+=1
             renderings = current_seq.render(candidate_values_pool, global_lock)
             apply_checkers(checkers, renderings, global_lock)
 
@@ -305,7 +310,11 @@ def render_one(seq_to_render, ith, checkers, mutator:dict_mutator,generation, gl
     else:
         print("Unsupported fuzzing_mode:", Settings().fuzzing_mode)
         assert False
-
+    n_valid_renderings = len(valid_renderings)
+    try:
+        mutator.power_schedule(current_seq,n_valid_renderings,n_invalid_renderings)
+    except:
+        raise ValueError
     # Release any saved dynamic objects
     dependencies.clear_saved_local_dyn_objects()
     return valid_renderings

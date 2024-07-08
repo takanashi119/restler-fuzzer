@@ -23,35 +23,6 @@ class dict_mutator:
     def __init__(self) -> None:
         self.seed_pool=[]
         self.max_candidate = 20
-
-    def mutate_value(self,value):
-        try:
-            if isinstance(value, int):
-                return value + random.randint(-10, 10)
-            elif isinstance(value, float):
-                return value * random.uniform(0.9, 1.1)
-            elif isinstance(value, str):
-                target_ASCII=np.fromstring(value,dtype=np.uint8)
-                if len(value):
-                    mutate_mtd=0
-                else:
-                    mutate_mtd=random.randint(0,3)
-                if mutate_mtd==0:
-                    random_char = random.choice(string.ascii_letters + string.digits)
-                    random_position = random.randint(0, len(value))
-                    modified_str = value[:random_position] + random_char + value[random_position:]
-                if mutate_mtd==1:
-                    random_position = random.randint(0, len(value))
-                    modified_str = value[:random_position] + value[random_position+1:]
-                if mutate_mtd==2:
-                    random_char = random.choice(string.ascii_letters + string.digits)
-                    random_position = random.randint(0, len(value))
-                    modified_str = value[:random_position] + random_char + value[random_position+1:]
-                    
-                return modified_str        
-        except:
-            pass
-
     def get_mutated_blocks(self,fuzzable_blocks):
         #No need to mutate the same value 
         mutated_blocks={}
@@ -69,7 +40,11 @@ class dict_mutator:
             if self.get_fuzzable(last_req) and self.should_select_seed():
                 fitness = n_valid/(n_invalid+n_valid+1)
                 for idx in self.current_seeds_idxs:
-                    self.seed_pool[idx][1] = self.seed_pool[idx][1] + fitness
+                    self.seed_pool[idx][1] = (self.seed_pool[idx][1]) * (1+fitness)
+        #ensure the sum of fitness equals to the len 
+            total = sum([seed[1] for seed in self.seed_pool])
+            for seed in self.seed_pool:
+                seed[1] = seed[1]/total * len(self.seed_pool)
         except:
             raise ValueError
     def seed_select(self,n_seeds):
@@ -93,7 +68,7 @@ class dict_mutator:
                 
 
 
-    def apply_mutation_dict(self,seq:sequences.Sequence,renderings,max_dict=100,max_candidate=20):
+    def apply_mutation_dict(self,seq:sequences.Sequence,renderings,max_dict=300,max_candidate=20):
         
         if (len(self.seed_pool)>=max_dict):
             return 0

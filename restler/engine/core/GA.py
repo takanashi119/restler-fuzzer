@@ -3,7 +3,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import random
 
-def mutation(string_to_mutate,mutation_rate=0.5):
+def mutation(string_to_mutate,mutation_rate=0.35):
     encoded_bytes = string_to_mutate.encode('utf-8')
     byte_list = list(encoded_bytes)
     for i in range(len(byte_list)):

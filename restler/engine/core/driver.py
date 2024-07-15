@@ -221,12 +221,25 @@ def render_one(seq_to_render, ith, checkers, mutator:dict_mutator,generation, gl
     n_invalid_renderings = 0
     iteration = 0
     while True:
+
+        try:
+            mutator.apply_mutation_dict(current_seq)
+            candidate_values_pool = GrammarRequestCollection().candidate_values_pool
+        except:
+                raise TimeoutError
+
+
+
+
         # Render on a sequence instance will internally iterate over possible
         # renderings of current sequence until a valid or an invalid combination
         # of values for its primitive types is found -- internal iteration may
         # skip some renderings (that are marked to be skipped according to past
         # failures) -- that's why we put everything in a while.
-        renderings = current_seq.render(candidate_values_pool, global_lock)
+        try:
+            renderings = current_seq.render(candidate_values_pool, global_lock)
+        except:
+            raise RuntimeError
         # Note that this loop will keep running as long as we hit invalid
         # renderings and we will end up reapplying the leakage rule a billion
         # times for very similar 404s. To control this, when in bfs-cheap, we
@@ -252,13 +265,7 @@ def render_one(seq_to_render, ith, checkers, mutator:dict_mutator,generation, gl
             logger.print_request_coverage(rendered_sequence=renderings, log_rendered_hash=True)
 
         # Exit after a valid rendering was found
-        # Apply my dict-fuzzer
         if renderings.valid:
-            try:
-                mutator.apply_mutation_dict(current_seq,renderings)
-                candidate_values_pool = GrammarRequestCollection().candidate_values_pool
-            except:
-                raise TimeoutError
             break
 
         # This line will only be reached only if we have an invalid rendering.
@@ -313,6 +320,7 @@ def render_one(seq_to_render, ith, checkers, mutator:dict_mutator,generation, gl
     n_valid_renderings = len(valid_renderings)
     try:
         mutator.power_schedule(current_seq,n_valid_renderings,n_invalid_renderings)
+        mutator.cut_seeds()
     except:
         raise ValueError
     # Release any saved dynamic objects

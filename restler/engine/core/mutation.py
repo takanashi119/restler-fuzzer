@@ -16,19 +16,24 @@ from engine.core.requests import GrammarRequestCollection
 from engine.transport_layer.response import *
 from engine.bug_bucketing import BugBuckets
 from utils.logger import raw_network_logging as RAW_LOGGING
+import traceback
 import numpy as np
 threadLocal = threading.local()
 DEFAULT_FITNESS=1
+MAX_POPULATION = 150
+ADDITION_NEEED_POPULATION=100
+
+
 class dict_mutator:
     def __init__(self) -> None:
-        self.seed_pool=[]
+        self.seed_pool = []
         self.max_candidate = 20
+        self.current_seeds_idxs = []
     def get_mutated_blocks(self,fuzzable_blocks):
         #No need to mutate the same value 
         mutated_blocks={}
         for idx,block in fuzzable_blocks.items():
             mutated_value = GA.mutation(block[1])
-            # mutated_value = self.mutate_value(block[1])
             mutated_blocks[idx]=block[:1]+(mutated_value,)+block[2:]
         return mutated_blocks
     
@@ -40,18 +45,22 @@ class dict_mutator:
             if self.get_fuzzable(last_req) and self.should_select_seed():
                 fitness = n_valid/(n_invalid+n_valid+1)
                 for idx in self.current_seeds_idxs:
-                    self.seed_pool[idx][1] = (self.seed_pool[idx][1]) * (1+fitness)
+                    self.seed_pool[idx][1] = (self.seed_pool[idx][1]) * (0.5+fitness)
         #ensure the sum of fitness equals to the len 
             total = sum([seed[1] for seed in self.seed_pool])
             for seed in self.seed_pool:
                 seed[1] = seed[1]/total * len(self.seed_pool)
+        #need to reset seeds cache
+            self.current_seeds_idxs=[]
         except:
             raise ValueError
-    def seed_select(self,n_seeds):
+    def seed_select(self,n_seeds,mutated_seeds_idx:list):
         value_index_table = list(range(len(self.seed_pool)))
         fitness_table = [seed[1] for seed in self.seed_pool]
         if self.should_select_seed():
             selected_index=set()
+            for idx in mutated_seeds_idx:
+                selected_index.add(idx)
             while len(selected_index)<n_seeds:
                 index=random.choices(value_index_table, weights=fitness_table,k=1)[0]
                 selected_index.add(index)
@@ -59,18 +68,30 @@ class dict_mutator:
         else:
             return value_index_table
     def should_select_seed(self):
+        # When seed_pool is not enough to fill candidate pool
         if len(self.seed_pool)>self.max_candidate:
             return True
         else:
             return False
         
                 
-                
+    def cut_seeds(self):
+        if len(self.seed_pool)<MAX_POPULATION:
+            return 
+        while len(self.seed_pool)>ADDITION_NEEED_POPULATION:
+            pool_sorted = sorted(self.seed_pool, key=lambda x: x[1])
+            self.seed_pool = pool_sorted[-100:]
+        #ensure the sum of fitness equals to the len 
+        total = sum([seed[1] for seed in self.seed_pool])
+        for seed in self.seed_pool:
+            seed[1] = seed[1]/total * len(self.seed_pool)
+        return 
 
 
-    def apply_mutation_dict(self,seq:sequences.Sequence,renderings,max_dict=300,max_candidate=20):
+
+    def apply_mutation_dict(self,seq:sequences.Sequence,max_dict=500,max_candidate=20):
         
-        if (len(self.seed_pool)>=max_dict):
+        if (len(self.seed_pool)>=max_dict):          
             return 0
         #initialize the seed_pool
         if not self.seed_pool:
@@ -90,30 +111,46 @@ class dict_mutator:
         #execute current seq until the last one
         #which referered the CHECKER(base)
         start_reqs=self.execute_start_of_sequence(seq)
-        
+
         mutated_blocks=self.get_mutated_blocks(fuzzable_blocks)
         new_last_req=copy.deepcopy(last_req)
-        for idx,block in mutated_blocks.items():
-            new_last_req.definition[idx]=block
-            new_seq=start_reqs+sequences.Sequence(new_last_req)
-            response =self.render_and_send_by_definition(new_seq,new_last_req)
-            #TODO:select seeds by power
-            if response.has_valid_code():
-                self.seed_pool.append([block[1],DEFAULT_FITNESS])
-                selected_seeds_idxs = self.seed_select(max_candidate)
+        # Replace all fuzzbale blocks with mutated blocks 
+
+        selected_seeds=[] 
+        self.current_seeds_idxs=[]
+        #Reset the cache seeds
+        try:
+            for idx,block in mutated_blocks.items():
+                new_last_req.definition[idx]=block
+                new_seq=start_reqs+sequences.Sequence(new_last_req)
+                response =self.render_and_send_by_definition(new_seq,new_last_req)
+        
+                #TODO:select seeds by power
+                if response.has_valid_code():
+                    self.seed_pool.append([block[1],DEFAULT_FITNESS])
+                    #add mutated seeds(idx)to current cache
+                    self.current_seeds_idxs.append(len(self.seed_pool)-1)
+
+                elif response.has_bug_code():
+                    print('find bug when redering a mutated request')    
+            if self.should_select_seed():
+                selected_seeds_idxs = self.seed_select(max_candidate, self.current_seeds_idxs)
                 self.current_seeds_idxs = selected_seeds_idxs
-                if self.should_select_seed():
-                    selected_seeds=[]
-                    for idx in selected_seeds_idxs:
-                        selected_seeds.append(self.seed_pool[idx][0])
-                    
-                    GrammarRequestCollection().candidate_values_pool.\
-                        candidate_values['restler_fuzzable_string'].values = selected_seeds
-                else:
-                    GrammarRequestCollection().candidate_values_pool.\
-                        candidate_values['restler_fuzzable_string'].values.append(block[1])
-            elif response.has_bug_code():
-                print('find bug when redering a mutated request')
+                #mutated value need to be added to candidate pool to render later
+                selected_seeds.append(block[1])
+                for idx in selected_seeds_idxs:
+                    selected_seeds.append(self.seed_pool[idx][0])
+                        
+                GrammarRequestCollection().candidate_values_pool.\
+                candidate_values['restler_fuzzable_string'].values = selected_seeds
+            else:
+                GrammarRequestCollection().candidate_values_pool.\
+                candidate_values['restler_fuzzable_string'].values.append(block[1])   
+        except Exception as e:
+            print("Exception caught!")
+            print(f"Type: {type(e)}")
+            print(f"Message: {e}")
+            traceback.print_exc()
         return 
     
 

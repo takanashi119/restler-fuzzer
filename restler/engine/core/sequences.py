@@ -696,7 +696,7 @@ class Sequence(object):
                 information = None
                 if response.has_valid_code():
                     if parser_exception_occurred:
-                        information = FailureInformacombinationstion.PARSER 
+                        information = FailureInformation.PARSER 
                     elif resource_error:
                         information = FailureInformation.RESOURCE_CREATION
                 elif response.has_bug_code():
